@@ -1,0 +1,5 @@
+#ifndef COMPAT_CONDITION_VARIABLE_H
+#define COMPAT_CONDITION_VARIABLE_H
+#include_next <condition_variable>
+#include "mingw.condition_variable.h"
+#endif

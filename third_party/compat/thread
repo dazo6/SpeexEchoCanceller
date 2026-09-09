@@ -1,0 +1,5 @@
+#ifndef COMPAT_THREAD_H
+#define COMPAT_THREAD_H
+#include_next <thread>
+#include "mingw.thread.h"
+#endif

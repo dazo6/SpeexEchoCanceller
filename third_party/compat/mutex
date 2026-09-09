@@ -1,0 +1,5 @@
+#ifndef COMPAT_MUTEX_H
+#define COMPAT_MUTEX_H
+#include_next <mutex>
+#include "mingw.mutex.h"
+#endif

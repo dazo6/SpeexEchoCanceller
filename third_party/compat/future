@@ -1,0 +1,5 @@
+#ifndef COMPAT_FUTURE_H
+#define COMPAT_FUTURE_H
+#include_next <future>
+#include "mingw.future.h"
+#endif

@@ -1,0 +1,42 @@
+# CMake / IDE build trees
+/build*/
+/cmake-build-*/
+/out/
+/dist/
+/package/
+CMakeUserPresets.json
+
+# Local tools and project-local Qt SDK (downloaded, not source)
+/.tools/
+/third_party/qt6/
+
+# IDE and OS metadata
+/.idea/
+/.vs/
+/.vscode/
+*.user
+*.suo
+.DS_Store
+Thumbs.db
+
+# Runtime state and generated media
+config.ini
+/record/
+*.wav
+*.log
+/build_log*.txt
+/testdata/local/
+
+# Compiler and packaging by-products
+*.exe
+*.obj
+*.o
+*.a
+*.pdb
+*.ilk
+*.zip
+*.7z
+
+# Keep the prebuilt proprietary SDK files required by this project.
+!third_party/real-aec/**/*.lib
+!third_party/real-aec/**/*.dll
