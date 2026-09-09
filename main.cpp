@@ -441,7 +441,7 @@ struct AppConfig {
     std::wstring micDeviceId;
     std::wstring loopbackDeviceId;
     std::wstring outputDeviceId;
-    std::string aecType;
+    std::string aecType = "speex_linear_denoise";
     bool autoStart = false;
     bool engineWasRunning = false;
     std::wstring backgroundImage;
@@ -495,7 +495,7 @@ bool LoadConfig(const std::string& filename, AppConfig& config) {
     if (settings.count("aec_type")) {
         config.aecType = settings["aec_type"];
     } else {
-        config.aecType = "webrtc"; // Default to WebRTC
+        config.aecType = "speex_linear_denoise";
     }
     if (settings.count("auto_start")) {
         config.autoStart = settings["auto_start"] == "1" || settings["auto_start"] == "true";
@@ -672,7 +672,7 @@ int main(int argc, char* argv[]) {
         }
     }
 
-    config.aecType = "webrtc"; // Default
+    config.aecType = "speex_linear_denoise"; // Default
     bool configLoaded = false;
     const std::string CONFIG_FILE = "config.ini";
 

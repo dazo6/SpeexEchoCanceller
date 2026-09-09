@@ -64,7 +64,7 @@ Download the ZIP produced by GitHub Actions or a Release, extract it, and run `S
 | `mic_id` | WASAPI device ID | Microphone capture endpoint |
 | `loopback_id` | WASAPI device ID | Render endpoint used for loopback capture |
 | `output_id` | WASAPI device ID | Processed-audio playback endpoint |
-| `aec_type` | one of the five values above | Processing mode |
+| `aec_type` | one of the five values above | Processing mode; default: `speex_linear_denoise` |
 | `noise_gate_threshold_dbfs` | `-80.0`–`0.0` dBFS | Post-gate 10 ms frame-RMS threshold; the GUI step is 0.1 dB |
 | `auto_start` | `0` / `1` | Start silently after Windows login |
 | `engine_running` | `0` / `1` | Restore the engine state on next launch |

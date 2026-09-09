@@ -454,6 +454,7 @@ public:
         mode = new QComboBox;
         mode->addItems({"WebRTC AEC3", "SpeexDSP（完整）", "SpeexDSP（线性）",
                         "Speex 线性 + 后置降噪", "RealAEC"});
+        mode->setCurrentIndex(3);
         noiseGate = new QSlider(Qt::Horizontal);
         noiseGate->setRange(-800, 0);
         noiseGate->setSingleStep(1);
@@ -470,6 +471,9 @@ public:
         noiseGateLayout->setSpacing(8);
         noiseGateLayout->addWidget(noiseGate, 1);
         noiseGateLayout->addWidget(noiseGateValue);
+        status = new QLabel("已停止");
+        status->setObjectName("status");
+        status->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
 
         auto* settings = new QGridLayout;
         settings->setHorizontalSpacing(16);
@@ -479,8 +483,9 @@ public:
         settings->addWidget(field("麦克风", mic), 0, 0);
         settings->addWidget(field("系统回环", reference), 0, 1);
         settings->addWidget(field("输出设备", output), 1, 0);
-        settings->addWidget(field("处理模式", mode), 2, 0);
-        settings->addWidget(field("声音阈值", noiseGateControl), 2, 1);
+        settings->addWidget(field("处理模式", mode), 1, 1);
+        settings->addWidget(field("声音阈值", noiseGateControl), 2, 0);
+        settings->addWidget(field("当前状态", status), 2, 1);
         root->addLayout(settings);
 
         auto* controls = new QHBoxLayout;
@@ -489,14 +494,11 @@ public:
         stopButton->setEnabled(false);
         autoStartBox = new QCheckBox("开机自启动（后台）");
         recordBox = new QCheckBox("录音");
-        status = new QLabel("已停止");
-        status->setObjectName("status");
         controls->addWidget(startButton);
         controls->addWidget(stopButton);
         controls->addWidget(autoStartBox);
         controls->addWidget(recordBox);
         controls->addStretch();
-        controls->addWidget(status);
         root->addLayout(controls);
 
         addWave(root, "麦克风", QColor("#4dabf7"));
@@ -741,7 +743,7 @@ private:
         select(reference, config.loopbackDeviceId);
         select(output, config.outputDeviceId);
         const int saved = modeKeys().indexOf(QString::fromStdString(config.aecType));
-        mode->setCurrentIndex(saved < 0 ? 0 : saved);
+        mode->setCurrentIndex(saved < 0 ? 3 : saved);
         setNoiseGateThresholdDbfs(config.noiseGateThresholdDbfs);
         autoStartBox->setChecked(config.autoStart);
         recordBox->setChecked(config.recordingEnabled);

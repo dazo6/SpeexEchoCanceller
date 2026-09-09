@@ -66,7 +66,7 @@ flowchart LR
 | `mic_id` | WASAPI 设备 ID | 麦克风输入设备 |
 | `loopback_id` | WASAPI 设备 ID | 用于系统回放采集的渲染设备 |
 | `output_id` | WASAPI 设备 ID | 处理结果播放设备 |
-| `aec_type` | 上表五个值之一 | 当前处理模式 |
+| `aec_type` | 上表五个值之一 | 当前处理模式；默认 `speex_linear_denoise` |
 | `noise_gate_threshold_dbfs` | `-80.0`–`0.0` dBFS | 后置 Gate 的 10 ms 帧 RMS 阈值，GUI 步进为 0.1 dB |
 | `auto_start` | `0` / `1` | 开机登录后静默启动程序 |
 | `engine_running` | `0` / `1` | 记录退出前引擎状态，下次启动时恢复 |
