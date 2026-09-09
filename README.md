@@ -34,10 +34,11 @@ flowchart LR
     H --> K
     I --> K
     J --> K
-    K --> L[指定输出设备]
+    K --> P[10 ms RMS Noise Gate]
+    P --> L[指定输出设备]
     A -.可选录音.-> M[mic.wav]
     B -.可选录音.-> N[loopback.wav]
-    K -.可选录音.-> O[output.wav]
+    P -.可选录音.-> O[output.wav]
 ```
 
 算法处理固定以 480 个采样为一帧：`480 / 48000 = 10 ms`。这里的“单帧处理耗时”只统计处理函数，不含设备缓存、线程调度、重采样和声卡链路延迟，因此不等于端到端延迟。
@@ -66,6 +67,7 @@ flowchart LR
 | `loopback_id` | WASAPI 设备 ID | 用于系统回放采集的渲染设备 |
 | `output_id` | WASAPI 设备 ID | 处理结果播放设备 |
 | `aec_type` | 上表五个值之一 | 当前处理模式 |
+| `noise_gate_threshold` | `0.0`–`1.0` | 后置 Gate 的归一化 10 ms 帧 RMS 阈值；`0` 关闭 |
 | `auto_start` | `0` / `1` | 开机登录后静默启动程序 |
 | `engine_running` | `0` / `1` | 记录退出前引擎状态，下次启动时恢复 |
 | `recording_enabled` | `0` / `1` | 引擎运行时是否录制三轨音频 |
@@ -78,6 +80,7 @@ flowchart LR
 
 ```ini
 aec_type=speex_linear_denoise
+noise_gate_threshold=0.01
 auto_start=1
 engine_running=1
 recording_enabled=0
@@ -87,7 +90,7 @@ window_width=640
 window_height=926
 ```
 
-GUI 程序还接受 `--background`，用于隐藏主窗口并从托盘启动。
+GUI 程序还接受 `--background`，用于隐藏主窗口并从托盘启动。阈值示例：`0.01` 约等于 `-40 dBFS`，`0.003162` 约等于 `-50 dBFS`。每个 10 ms 输出帧的 RMS 低于阈值时，整帧直接置零；修改阈值时，正在运行的引擎会自动重启以应用新值。
 
 ## 构建
 
@@ -118,14 +121,14 @@ cmake --build build -j
 
 ## 性能测算
 
-测试日期为 2026-09-09，Windows x64、AMD64 Family 25（12 个逻辑处理器）、MinGW 13.1、Release 优化。样本为 48 kHz 单声道 PCM16，帧长 480 samples（10 ms）；每个开源模式处理 16,303 帧。数字只测 `Process()` 调用。
+测试日期为 2026-09-09，Windows x64、AMD64 Family 25（12 个逻辑处理器）、MinGW 13.1、Release 优化。样本为 48 kHz 单声道 PCM16，帧长 480 samples（10 ms）；每个开源模式处理 16,303 帧，Gate 阈值为 `0.01`（约 -40 dBFS）。数字统计完整 `Process()` 调用，包含算法及其后的 RMS 计算和静音判断。GUI 显示的平均处理时长同样在 Gate 完成后停止计时。
 
 | 模式 | 平均耗时/帧 | P95 | 最大值 | 实时因子 | 10 ms 预算占用 |
 |---|---:|---:|---:|---:|---:|
-| WebRTC | 0.0979 ms | 0.1692 ms | 1.2538 ms | 0.0098 | 0.98% |
-| Speex | 0.0861 ms | 0.1188 ms | 1.3669 ms | 0.0086 | 0.86% |
-| Speex Linear | 0.0601 ms | 0.0839 ms | 0.4874 ms | 0.0060 | 0.60% |
-| Speex Linear Denoise | 0.0861 ms | 0.1197 ms | 0.9163 ms | 0.0086 | 0.86% |
+| WebRTC | 0.1289 ms | 0.2643 ms | 11.5649 ms | 0.0129 | 1.29% |
+| Speex | 0.1030 ms | 0.1898 ms | 1.2432 ms | 0.0103 | 1.03% |
+| Speex Linear | 0.0696 ms | 0.1224 ms | 0.8816 ms | 0.0070 | 0.70% |
+| Speex Linear Denoise | 0.1046 ms | 0.1885 ms | 2.0583 ms | 0.0105 | 1.05% |
 | RealAEC | 未得到有效值 | — | — | — | — |
 
 RealAEC 在独立基准进程调用 `REAL_AEC_create()` 时异常退出，尚未进入逐帧处理，因此不能把启动时间或猜测值填入表格。GUI 使用的 Debug SDK 模式仍保留；发布前应在目标机上单独完成稳定性和授权验证。
@@ -145,7 +148,7 @@ cmake -S . -B build-bench -G "MinGW Makefiles" `
   -DCMAKE_BUILD_TYPE=Release -DAEC_BUILD_BENCHMARK=ON `
   -DAEC_ENABLE_LOCAL_DEPLOY=OFF
 cmake --build build-bench --target aec_benchmark -j
-build-bench\aec_benchmark.exe mic.wav loopback.wav 7
+build-bench\aec_benchmark.exe mic.wav loopback.wav 7 speex_linear_denoise 0.01
 ```
 
 ## 回声消除效果

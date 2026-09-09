@@ -34,10 +34,11 @@ flowchart LR
     H --> K
     I --> K
     J --> K
-    K --> L[Selected output]
+    K --> P[10 ms RMS noise gate]
+    P --> L[Selected output]
     A -.optional recording.-> M[mic.wav]
     B -.optional recording.-> N[loopback.wav]
-    K -.optional recording.-> O[output.wav]
+    P -.optional recording.-> O[output.wav]
 ```
 
 Each algorithm call handles 480 samples: `480 / 48000 = 10 ms`. The per-frame timing below measures the processing function only; device buffers, scheduling, resampling, and sound-card latency are not included, so it is not end-to-end latency.
@@ -64,6 +65,7 @@ Download the ZIP produced by GitHub Actions or a Release, extract it, and run `S
 | `loopback_id` | WASAPI device ID | Render endpoint used for loopback capture |
 | `output_id` | WASAPI device ID | Processed-audio playback endpoint |
 | `aec_type` | one of the five values above | Processing mode |
+| `noise_gate_threshold` | `0.0`–`1.0` | Normalized 10 ms frame-RMS threshold for the post gate; `0` disables it |
 | `auto_start` | `0` / `1` | Start silently after Windows login |
 | `engine_running` | `0` / `1` | Restore the engine state on next launch |
 | `recording_enabled` | `0` / `1` | Record three tracks while the engine runs |
@@ -72,7 +74,7 @@ Download the ZIP produced by GitHub Actions or a Release, extract it, and run `S
 | `window_width` | pixels; `0` means automatic | Remembered window width |
 | `window_height` | pixels; `0` means automatic | Remembered window height |
 
-The GUI also accepts `--background` for a tray-only launch.
+The GUI also accepts `--background` for a tray-only launch. For reference, `0.01` is approximately `-40 dBFS`, while `0.003162` is approximately `-50 dBFS`. A complete 10 ms output frame is zeroed when its RMS is below the threshold. Editing the value automatically restarts a running engine so the new value takes effect.
 
 ## Build
 
@@ -93,14 +95,14 @@ For automatic local deployment after a successful build, set `AEC_ENABLE_LOCAL_D
 
 ## Performance
 
-Measured on 2026-09-09 on Windows x64, AMD64 Family 25 (12 logical processors), MinGW 13.1, Release optimization. Input was 48 kHz mono PCM16 with 480-sample (10 ms) frames; each open-source mode processed 16,303 frames. Only `Process()` was timed.
+Measured on 2026-09-09 on Windows x64, AMD64 Family 25 (12 logical processors), MinGW 13.1, Release optimization. Input was 48 kHz mono PCM16 with 480-sample (10 ms) frames; each open-source mode processed 16,303 frames with a `0.01` gate threshold (about -40 dBFS). The complete `Process()` call is timed, including the algorithm, RMS calculation, and gate decision. The GUI average also stops timing only after the gate has completed.
 
 | Mode | Mean/frame | P95 | Maximum | Real-time factor | 10 ms budget |
 |---|---:|---:|---:|---:|---:|
-| WebRTC | 0.0979 ms | 0.1692 ms | 1.2538 ms | 0.0098 | 0.98% |
-| Speex | 0.0861 ms | 0.1188 ms | 1.3669 ms | 0.0086 | 0.86% |
-| Speex Linear | 0.0601 ms | 0.0839 ms | 0.4874 ms | 0.0060 | 0.60% |
-| Speex Linear Denoise | 0.0861 ms | 0.1197 ms | 0.9163 ms | 0.0086 | 0.86% |
+| WebRTC | 0.1289 ms | 0.2643 ms | 11.5649 ms | 0.0129 | 1.29% |
+| Speex | 0.1030 ms | 0.1898 ms | 1.2432 ms | 0.0103 | 1.03% |
+| Speex Linear | 0.0696 ms | 0.1224 ms | 0.8816 ms | 0.0070 | 0.70% |
+| Speex Linear Denoise | 0.1046 ms | 0.1885 ms | 2.0583 ms | 0.0105 | 1.05% |
 | RealAEC | no valid result | — | — | — | — |
 
 The standalone RealAEC benchmark exited abnormally inside `REAL_AEC_create()` before frame processing began. Startup time or an invented estimate is therefore not reported. The GUI-compatible Debug SDK remains available, but the mode needs separate stability and licensing verification before release.
@@ -114,7 +116,7 @@ The standalone RealAEC benchmark exited abnormally inside `REAL_AEC_create()` be
 Build with `AEC_BUILD_BENCHMARK=ON`, then run:
 
 ```powershell
-build\aec_benchmark.exe mic.wav loopback.wav 7
+build\aec_benchmark.exe mic.wav loopback.wav 7 speex_linear_denoise 0.01
 ```
 
 ## Echo-reduction measurements

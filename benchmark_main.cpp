@@ -6,8 +6,8 @@
 #include <iomanip>
 
 int main(int argc, char* argv[]) {
-    if (argc < 3 || argc > 5) {
-        std::cerr << "Usage: aec_benchmark <mic.wav> <loopback.wav> [iterations] [mode]\n";
+    if (argc < 3 || argc > 6) {
+        std::cerr << "Usage: aec_benchmark <mic.wav> <loopback.wav> [iterations] [mode] [gate_threshold]\n";
         return 2;
     }
 
@@ -19,11 +19,11 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
-    const int iterations = argc == 4 ? std::max(1, std::atoi(argv[3])) : 5;
+    const int iterations = argc >= 4 ? std::max(1, std::atoi(argv[3])) : 5;
     std::vector<std::string> modes = {
         "webrtc", "speex", "speex_linear", "speex_linear_denoise", "real_aec"
     };
-    if (argc == 5) {
+    if (argc >= 5) {
         const std::string requestedMode = argv[4];
         if (std::find(modes.begin(), modes.end(), requestedMode) == modes.end()) {
             std::cerr << "Unknown mode: " << requestedMode << '\n';
@@ -31,14 +31,16 @@ int main(int argc, char* argv[]) {
         }
         modes = {requestedMode};
     }
+    const double gateThreshold = argc == 6
+        ? std::clamp(std::atof(argv[5]), 0.0, 1.0) : 0.0;
     std::vector<short> output(480);
 
-    std::cout << "mode,frames,mean_ms,p95_ms,max_ms,realtime_factor\n";
+    std::cout << "mode,gate_threshold,frames,mean_ms,p95_ms,max_ms,realtime_factor\n";
     for (const auto& mode : modes) {
         std::vector<double> timings;
         timings.reserve((mic.samples.size() / 480) * iterations);
         for (int iteration = 0; iteration < iterations; ++iteration) {
-            AudioProcessorWrapper processor(mode, 48000, 480, 9600);
+            AudioProcessorWrapper processor(mode, 48000, 480, 9600, gateThreshold);
             for (size_t offset = 0; offset < mic.samples.size(); offset += 480) {
                 const auto start = std::chrono::steady_clock::now();
                 processor.Process(mic.samples.data() + offset,
@@ -53,7 +55,7 @@ int main(int argc, char* argv[]) {
         const double mean = total / timings.size();
         const size_t p95Index = std::min(timings.size() - 1,
                                          static_cast<size_t>(timings.size() * 0.95));
-        std::cout << mode << ',' << timings.size() << ',' << std::fixed
+        std::cout << mode << ',' << gateThreshold << ',' << timings.size() << ',' << std::fixed
                   << std::setprecision(4) << mean << ',' << timings[p95Index] << ','
                   << timings.back() << ',' << mean / 10.0 << '\n';
     }

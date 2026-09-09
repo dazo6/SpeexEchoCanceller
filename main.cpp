@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <iostream>
 #include <vector>
 #include <cmath>
@@ -45,6 +46,20 @@ public:
     virtual void Process(const short* micSignal, const short* spkSignal, short* outSignal) = 0;
     virtual std::wstring GetName() const = 0;
 };
+
+// Hard frame gate applied after the selected AEC/denoise chain. The threshold
+// is normalized RMS amplitude: 0 disables the gate, 1 represents full scale.
+static void ApplyNoiseGate(short* samples, size_t count, double threshold) {
+    if (!samples || count == 0 || threshold <= 0.0) return;
+    threshold = std::clamp(threshold, 0.0, 1.0);
+    double sumSquares = 0.0;
+    for (size_t i = 0; i < count; ++i) {
+        const double normalized = static_cast<double>(samples[i]) / 32768.0;
+        sumSquares += normalized * normalized;
+    }
+    const double frameRms = std::sqrt(sumSquares / static_cast<double>(count));
+    if (frameRms < threshold) std::fill(samples, samples + count, 0);
+}
 
 // ===================== SpeexAEC 实现 =====================
 
@@ -270,8 +285,10 @@ private:
 
 class AudioProcessorWrapper {
 public:
-    AudioProcessorWrapper(const std::string& type, int sampleRate, int frameSize, int filterLen) 
-        : m_frameSize(frameSize) {
+    AudioProcessorWrapper(const std::string& type, int sampleRate, int frameSize, int filterLen,
+                          double noiseGateThreshold = 0.0)
+        : m_frameSize(frameSize),
+          m_noiseGateThreshold(std::clamp(noiseGateThreshold, 0.0, 1.0)) {
         std::cout << "AudioProcessorWrapper initializing with type: " << type << std::endl;
         if (type == "webrtc") {
             m_processor = std::make_unique<WebRtcAEC>(sampleRate, 1, frameSize);
@@ -303,6 +320,7 @@ public:
         } else {
             m_processor->Process(mic, spk, out);
         }
+        ApplyNoiseGate(out, static_cast<size_t>(m_frameSize), m_noiseGateThreshold);
     }
     
     std::wstring GetName() const { return m_processor->GetName(); }
@@ -310,6 +328,7 @@ public:
 private:
     std::unique_ptr<IAudioProcessor> m_processor;
     int m_frameSize;
+    double m_noiseGateThreshold;
     bool m_isWebRtc;
 };
 
@@ -421,6 +440,7 @@ struct AppConfig {
     int windowWidth = 0;
     int windowHeight = 0;
     bool recordingEnabled = false;
+    double noiseGateThreshold = 0.0;
 };
 
 static std::wstring Utf8ToWide(const std::string& value) {
@@ -494,6 +514,14 @@ bool LoadConfig(const std::string& filename, AppConfig& config) {
         config.recordingEnabled = settings["recording_enabled"] == "1" ||
                                   settings["recording_enabled"] == "true";
     }
+    if (settings.count("noise_gate_threshold")) {
+        try {
+            config.noiseGateThreshold = std::clamp(
+                std::stod(settings["noise_gate_threshold"]), 0.0, 1.0);
+        } catch (...) {
+            config.noiseGateThreshold = 0.0;
+        }
+    }
 
     // Command line override for aec_type
     // This is a bit hacky to put here, but convenient.
@@ -526,6 +554,7 @@ void SaveConfig(const std::string& filename, const AppConfig& config) {
     file << "window_width=" << config.windowWidth << '\n';
     file << "window_height=" << config.windowHeight << '\n';
     file << "recording_enabled=" << (config.recordingEnabled ? "1" : "0") << '\n';
+    file << "noise_gate_threshold=" << config.noiseGateThreshold << '\n';
 }
 
 // ===================== 主逻辑 =====================
@@ -743,7 +772,8 @@ int main(int argc, char* argv[]) {
     
     // 4. 创建 AEC 处理器
     std::cout << "Creating AEC Processor type: " << config.aecType << std::endl;
-    AudioProcessorWrapper processor(config.aecType, SAMPLE_RATE, FRAME_SIZE, FILTER_LEN);
+    AudioProcessorWrapper processor(config.aecType, SAMPLE_RATE, FRAME_SIZE, FILTER_LEN,
+                                    config.noiseGateThreshold);
     std::cout << "AEC Processor created: " << ToUtf8(processor.GetName()) << std::endl;
 
     // 5. 缓冲区

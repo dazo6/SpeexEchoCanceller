@@ -8,6 +8,7 @@
 #include <QCoreApplication>
 #include <QDateTime>
 #include <QDir>
+#include <QDoubleSpinBox>
 #include <QGridLayout>
 #include <QGuiApplication>
 #include <QHBoxLayout>
@@ -233,11 +234,13 @@ public:
     }
     void setRecording(bool enabled) { recordingEnabled = enabled; }
     void start(QString micId, QString loopbackId, QString outputId, QString mode,
-               QString recordDirectory, bool record) {
+               double noiseGateThreshold, QString recordDirectory, bool record) {
         stop();
         recordingEnabled = record;
         live = true;
-        worker = std::thread([=] { run(micId, loopbackId, outputId, mode, recordDirectory); });
+        worker = std::thread([=] {
+            run(micId, loopbackId, outputId, mode, noiseGateThreshold, recordDirectory);
+        });
     }
     void stop() {
         live = false;
@@ -246,7 +249,7 @@ public:
 
 private:
     void run(QString micId, QString loopbackId, QString outputId, QString mode,
-             QString recordDirectory) {
+             double noiseGateThreshold, QString recordDirectory) {
         CoInitializeEx(nullptr, COINIT_MULTITHREADED);
         AudioStream micStream, loopbackStream, outputStream;
         if (!micStream.Open(micId.toStdWString(), true, false, 0) ||
@@ -258,7 +261,8 @@ private:
             CoUninitialize();
             return;
         }
-        AudioProcessorWrapper processor(mode.toStdString(), 48000, 480, 9600);
+        AudioProcessorWrapper processor(mode.toStdString(), 48000, 480, 9600,
+                                        noiseGateThreshold);
         AsyncThreeTrackRecorder recorder(recordDirectory);
         std::deque<short> delay(480, 0);
         std::vector<short> mic, loopback, output(480), reference(480);
@@ -450,6 +454,12 @@ public:
         mode = new QComboBox;
         mode->addItems({"WebRTC AEC3", "SpeexDSP（完整）", "SpeexDSP（线性）",
                         "Speex 线性 + 后置降噪", "RealAEC"});
+        noiseGate = new QDoubleSpinBox;
+        noiseGate->setRange(0.0, 1.0);
+        noiseGate->setDecimals(6);
+        noiseGate->setSingleStep(0.001);
+        noiseGate->setValue(0.0);
+        noiseGate->setToolTip("归一化 10 ms 帧 RMS 阈值；0 表示关闭，例如 0.01 ≈ -40 dBFS");
 
         auto* settings = new QGridLayout;
         settings->setHorizontalSpacing(16);
@@ -459,7 +469,8 @@ public:
         settings->addWidget(field("麦克风", mic), 0, 0);
         settings->addWidget(field("系统回环", reference), 0, 1);
         settings->addWidget(field("输出设备", output), 1, 0);
-        settings->addWidget(field("处理模式", mode), 1, 1);
+        settings->addWidget(field("处理模式", mode), 2, 0);
+        settings->addWidget(field("声音阈值", noiseGate), 2, 1);
         root->addLayout(settings);
 
         auto* controls = new QHBoxLayout;
@@ -485,6 +496,10 @@ public:
 
         connect(startButton, &QPushButton::clicked, this, [&] { startEngine(); });
         connect(stopButton, &QPushButton::clicked, this, [&] { stopEngine(); });
+        connect(noiseGate, &QDoubleSpinBox::editingFinished, this, [&] {
+            if (engine.running()) startEngine();
+            else saveConfig(false);
+        });
 
         trayStatus = new QAction("状态：已停止", this);
         trayStatus->setEnabled(false);
@@ -605,7 +620,7 @@ private:
     void startEngine() {
         engine.start(mic->currentData().toString(), reference->currentData().toString(),
                      output->currentData().toString(), modeKeys()[mode->currentIndex()],
-                     recordDirectory(), recordBox->isChecked());
+                     noiseGate->value(), recordDirectory(), recordBox->isChecked());
         saveConfig(true);
     }
     void stopEngine() {
@@ -710,6 +725,7 @@ private:
         select(output, config.outputDeviceId);
         const int saved = modeKeys().indexOf(QString::fromStdString(config.aecType));
         mode->setCurrentIndex(saved < 0 ? 0 : saved);
+        noiseGate->setValue(config.noiseGateThreshold);
         autoStartBox->setChecked(config.autoStart);
         recordBox->setChecked(config.recordingEnabled);
         engine.setRecording(config.recordingEnabled);
@@ -746,6 +762,7 @@ private:
         config.windowWidth = savedWindowWidth;
         config.windowHeight = savedWindowHeight;
         config.recordingEnabled = recordBox->isChecked();
+        config.noiseGateThreshold = noiseGate->value();
         SaveConfig(configPath(), config);
     }
     void restoreSavedWindowSize() {
@@ -791,6 +808,7 @@ private:
     Engine engine;
     BackgroundWidget* background = nullptr;
     QComboBox *mic = nullptr, *reference = nullptr, *output = nullptr, *mode = nullptr;
+    QDoubleSpinBox* noiseGate = nullptr;
     QPushButton *startButton = nullptr, *stopButton = nullptr;
     QCheckBox *autoStartBox = nullptr, *recordBox = nullptr;
     QLabel* status = nullptr;
@@ -839,8 +857,8 @@ int main(int argc, char** argv) {
         QLabel#waveLabel { padding-top: 1px; }
         QLabel#status { color: #bcecff; background: rgba(12, 22, 33, 92); border-radius: 6px; padding: 5px 9px; font-weight: 600; }
         QCheckBox { background: rgba(12, 22, 33, 62); border-radius: 6px; padding: 6px 9px; }
-        QComboBox { background: rgba(20, 31, 44, 122); border: 1px solid rgba(145, 187, 222, 135); border-radius: 7px; padding: 7px 9px; }
-        QComboBox:hover { background: rgba(27, 44, 60, 155); border-color: rgba(157, 210, 245, 215); }
+        QComboBox, QDoubleSpinBox { background: rgba(20, 31, 44, 122); border: 1px solid rgba(145, 187, 222, 135); border-radius: 7px; padding: 7px 9px; }
+        QComboBox:hover, QDoubleSpinBox:hover { background: rgba(27, 44, 60, 155); border-color: rgba(157, 210, 245, 215); }
         QComboBox QAbstractItemView { background: rgba(18, 29, 42, 218); selection-background-color: rgba(28, 116, 165, 205); }
         QPushButton { background: rgba(15, 119, 181, 158); border: 1px solid rgba(145, 216, 250, 110); border-radius: 7px; padding: 9px 20px; font-weight: 600; }
         QPushButton:hover { background: rgba(22, 143, 207, 190); }
