@@ -4,6 +4,15 @@
 
 一个面向 Windows 的实时声学回声消除（AEC）桌面程序。它通过 WASAPI 同时采集麦克风和系统回放流，使用可选算法处理 48 kHz、单声道、10 ms 音频帧，再将结果送到指定输出设备。程序提供 Qt 6 GUI、设备选择、实时波形、托盘控制、自启动、状态恢复和三轨分段录音。
 
+## ⚠️ 作为麦克风输出前请安装 VB-CABLE
+
+如果希望将本程序处理后的声音提供给会议、直播或语音软件作为“麦克风”，需要先安装 [VB-CABLE Virtual Audio Device](https://vb-audio.com/Cable/) 来创建虚拟声音输入并充当音频管道。
+
+1. 在本程序中将“输出设备”选择为 **CABLE Input (VB-Audio Virtual Cable)**。
+2. 在会议、直播或语音软件中将“麦克风”选择为 **CABLE Output (VB-Audio Virtual Cable)**。
+
+这样，本程序处理后的声音会写入 CABLE Input，再从 CABLE Output 以虚拟麦克风的形式提供给其他软件。
+
 > 当前面向 Windows x64 + MinGW。`RealAEC` 是随仓库提供的第三方二进制 SDK；其授权和再分发条件应由发布者单独确认。
 
 ## 功能

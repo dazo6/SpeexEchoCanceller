@@ -4,6 +4,15 @@
 
 A Windows desktop acoustic echo cancellation (AEC) application. It captures microphone and system-loopback streams through WASAPI, processes 48 kHz mono audio in 10 ms frames with a selectable algorithm, and sends the result to a selected output device. The Qt 6 GUI includes device selection, live waveforms, tray controls, startup/state persistence, and segmented three-track recording.
 
+## ⚠️ Install VB-CABLE for virtual microphone output
+
+To use the processed audio from this application as a “microphone” in conferencing, streaming, or voice applications, first install [VB-CABLE Virtual Audio Device](https://vb-audio.com/Cable/). It creates a virtual audio input that acts as the pipe between applications.
+
+1. Select **CABLE Input (VB-Audio Virtual Cable)** as the output device in this application.
+2. Select **CABLE Output (VB-Audio Virtual Cable)** as the microphone in the conferencing, streaming, or voice application.
+
+The processed audio is then written to CABLE Input and exposed to other applications as a virtual microphone through CABLE Output.
+
 > The current target is Windows x64 with MinGW. `RealAEC` is a third-party binary SDK bundled with the repository; publishers must verify its licensing and redistribution terms separately.
 
 ## Features
