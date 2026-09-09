@@ -455,15 +455,15 @@ public:
         mode->addItems({"WebRTC AEC3", "SpeexDSP（完整）", "SpeexDSP（线性）",
                         "Speex 线性 + 后置降噪", "RealAEC"});
         noiseGate = new QSlider(Qt::Horizontal);
-        noiseGate->setRange(0, 1000000);
-        noiseGate->setSingleStep(100);
-        noiseGate->setPageStep(1000);
-        noiseGate->setValue(0);
-        noiseGate->setToolTip("归一化 10 ms 帧 RMS 阈值；0 表示关闭，例如 0.01 ≈ -40 dBFS");
-        noiseGateValue = new QLabel("0.000000");
+        noiseGate->setRange(-800, 0);
+        noiseGate->setSingleStep(1);
+        noiseGate->setPageStep(10);
+        noiseGate->setValue(-800);
+        noiseGate->setToolTip("10 ms 帧 RMS 阈值，范围 -80.0～0.0 dBFS，步进 0.1 dB");
+        noiseGateValue = new QLabel("-80.0 dBFS");
         noiseGateValue->setObjectName("sliderValue");
         noiseGateValue->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
-        noiseGateValue->setMinimumWidth(72);
+        noiseGateValue->setMinimumWidth(96);
         auto* noiseGateControl = new QWidget;
         auto* noiseGateLayout = new QHBoxLayout(noiseGateControl);
         noiseGateLayout->setContentsMargins(0, 0, 0, 0);
@@ -509,7 +509,7 @@ public:
         gateApplyTimer = new QTimer(this);
         gateApplyTimer->setSingleShot(true);
         connect(noiseGate, &QSlider::valueChanged, this, [&](int value) {
-            noiseGateValue->setText(QString::number(value / 1000000.0, 'f', 6));
+            noiseGateValue->setText(QString("%1 dBFS").arg(value / 10.0, 0, 'f', 1));
             gateApplyTimer->start(350);
         });
         connect(gateApplyTimer, &QTimer::timeout, this, [&] {
@@ -636,7 +636,8 @@ private:
     void startEngine() {
         engine.start(mic->currentData().toString(), reference->currentData().toString(),
                      output->currentData().toString(), modeKeys()[mode->currentIndex()],
-                     noiseGateThreshold(), recordDirectory(), recordBox->isChecked());
+                     DbfsToNormalizedRms(noiseGateThresholdDbfs()),
+                     recordDirectory(), recordBox->isChecked());
         saveConfig(true);
     }
     void stopEngine() {
@@ -741,7 +742,7 @@ private:
         select(output, config.outputDeviceId);
         const int saved = modeKeys().indexOf(QString::fromStdString(config.aecType));
         mode->setCurrentIndex(saved < 0 ? 0 : saved);
-        setNoiseGateThreshold(config.noiseGateThreshold);
+        setNoiseGateThresholdDbfs(config.noiseGateThresholdDbfs);
         autoStartBox->setChecked(config.autoStart);
         recordBox->setChecked(config.recordingEnabled);
         engine.setRecording(config.recordingEnabled);
@@ -778,16 +779,16 @@ private:
         config.windowWidth = savedWindowWidth;
         config.windowHeight = savedWindowHeight;
         config.recordingEnabled = recordBox->isChecked();
-        config.noiseGateThreshold = noiseGateThreshold();
+        config.noiseGateThresholdDbfs = noiseGateThresholdDbfs();
         SaveConfig(configPath(), config);
     }
-    double noiseGateThreshold() const {
-        return noiseGate->value() / 1000000.0;
+    double noiseGateThresholdDbfs() const {
+        return noiseGate->value() / 10.0;
     }
-    void setNoiseGateThreshold(double value) {
-        const int sliderValue = static_cast<int>(std::round(std::clamp(value, 0.0, 1.0) * 1000000.0));
+    void setNoiseGateThresholdDbfs(double value) {
+        const int sliderValue = static_cast<int>(std::round(std::clamp(value, -80.0, 0.0) * 10.0));
         noiseGate->setValue(sliderValue);
-        noiseGateValue->setText(QString::number(sliderValue / 1000000.0, 'f', 6));
+        noiseGateValue->setText(QString("%1 dBFS").arg(sliderValue / 10.0, 0, 'f', 1));
     }
     void restoreSavedWindowSize() {
         QScreen* screen = QGuiApplication::primaryScreen();
@@ -885,7 +886,7 @@ int main(int argc, char** argv) {
         QCheckBox { background: rgba(12, 22, 33, 62); border-radius: 6px; padding: 6px 9px; }
         QComboBox { background: rgba(20, 31, 44, 122); border: 1px solid rgba(145, 187, 222, 135); border-radius: 7px; padding: 7px 9px; }
         QComboBox:hover { background: rgba(27, 44, 60, 155); border-color: rgba(157, 210, 245, 215); }
-        QLabel#sliderValue { color: #bcecff; background: rgba(12, 22, 33, 92); border-radius: 6px; padding: 5px 7px; font-family: Consolas, monospace; }
+        QLabel#sliderValue { color: #bcecff; background: rgba(12, 22, 33, 92); border-radius: 6px; padding: 5px 7px; font-family: 'Microsoft YaHei UI', 'Microsoft YaHei'; }
         QSlider::groove:horizontal { height: 7px; background: rgba(20, 31, 44, 150); border: 1px solid rgba(145, 187, 222, 100); border-radius: 4px; }
         QSlider::sub-page:horizontal { background: rgba(42, 165, 220, 205); border-radius: 4px; }
         QSlider::handle:horizontal { width: 18px; margin: -6px 0; background: #bcecff; border: 2px solid #2388bb; border-radius: 9px; }

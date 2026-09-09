@@ -65,7 +65,7 @@ Download the ZIP produced by GitHub Actions or a Release, extract it, and run `S
 | `loopback_id` | WASAPI device ID | Render endpoint used for loopback capture |
 | `output_id` | WASAPI device ID | Processed-audio playback endpoint |
 | `aec_type` | one of the five values above | Processing mode |
-| `noise_gate_threshold` | `0.0`–`1.0` | Normalized 10 ms frame-RMS threshold for the post gate; `0` disables it |
+| `noise_gate_threshold_dbfs` | `-80.0`–`0.0` dBFS | Post-gate 10 ms frame-RMS threshold; the GUI step is 0.1 dB |
 | `auto_start` | `0` / `1` | Start silently after Windows login |
 | `engine_running` | `0` / `1` | Restore the engine state on next launch |
 | `recording_enabled` | `0` / `1` | Record three tracks while the engine runs |
@@ -74,7 +74,7 @@ Download the ZIP produced by GitHub Actions or a Release, extract it, and run `S
 | `window_width` | pixels; `0` means automatic | Remembered window width |
 | `window_height` | pixels; `0` means automatic | Remembered window height |
 
-The GUI also accepts `--background` for a tray-only launch. For reference, `0.01` is approximately `-40 dBFS`, while `0.003162` is approximately `-50 dBFS`. A complete 10 ms output frame is zeroed when its RMS is below the threshold. Editing the value automatically restarts a running engine so the new value takes effect.
+The GUI also accepts `--background` for a tray-only launch. The threshold slider directly uses `-80.0` to `0.0 dBFS` with a 0.1 dB step. A complete 10 ms output frame is zeroed when its RMS is below the threshold. Editing the value automatically restarts a running engine so the new value takes effect. The previous normalized `noise_gate_threshold` setting is converted and migrated automatically when read.
 
 ## Build
 
@@ -95,7 +95,7 @@ For automatic local deployment after a successful build, set `AEC_ENABLE_LOCAL_D
 
 ## Performance
 
-Measured on 2026-09-09 on Windows x64, AMD64 Family 25 (12 logical processors), MinGW 13.1, Release optimization. Input was 48 kHz mono PCM16 with 480-sample (10 ms) frames; each open-source mode processed 16,303 frames with a `0.01` gate threshold (about -40 dBFS). The complete `Process()` call is timed, including the algorithm, RMS calculation, and gate decision. The GUI average also stops timing only after the gate has completed.
+Measured on 2026-09-09 on Windows x64, AMD64 Family 25 (12 logical processors), MinGW 13.1, Release optimization. Input was 48 kHz mono PCM16 with 480-sample (10 ms) frames; each open-source mode processed 16,303 frames with a `-40 dBFS` gate threshold. The complete `Process()` call is timed, including the algorithm, RMS calculation, and gate decision. The GUI average also stops timing only after the gate has completed.
 
 | Mode | Mean/frame | P95 | Maximum | Real-time factor | 10 ms budget |
 |---|---:|---:|---:|---:|---:|
@@ -116,7 +116,7 @@ The standalone RealAEC benchmark exited abnormally inside `REAL_AEC_create()` be
 Build with `AEC_BUILD_BENCHMARK=ON`, then run:
 
 ```powershell
-build\aec_benchmark.exe mic.wav loopback.wav 7 speex_linear_denoise 0.01
+build\aec_benchmark.exe mic.wav loopback.wav 7 speex_linear_denoise -40
 ```
 
 ## Echo-reduction measurements

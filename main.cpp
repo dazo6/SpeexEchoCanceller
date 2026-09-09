@@ -61,6 +61,15 @@ static void ApplyNoiseGate(short* samples, size_t count, double threshold) {
     if (frameRms < threshold) std::fill(samples, samples + count, 0);
 }
 
+static double DbfsToNormalizedRms(double dbfs) {
+    return std::pow(10.0, std::clamp(dbfs, -80.0, 0.0) / 20.0);
+}
+
+static double NormalizedRmsToDbfs(double amplitude) {
+    if (amplitude <= 0.0) return -80.0;
+    return std::clamp(20.0 * std::log10(amplitude), -80.0, 0.0);
+}
+
 // ===================== SpeexAEC 实现 =====================
 
 class SpeexAEC : public IAudioProcessor {
@@ -440,7 +449,7 @@ struct AppConfig {
     int windowWidth = 0;
     int windowHeight = 0;
     bool recordingEnabled = false;
-    double noiseGateThreshold = 0.0;
+    double noiseGateThresholdDbfs = -80.0;
 };
 
 static std::wstring Utf8ToWide(const std::string& value) {
@@ -514,12 +523,20 @@ bool LoadConfig(const std::string& filename, AppConfig& config) {
         config.recordingEnabled = settings["recording_enabled"] == "1" ||
                                   settings["recording_enabled"] == "true";
     }
-    if (settings.count("noise_gate_threshold")) {
+    if (settings.count("noise_gate_threshold_dbfs")) {
         try {
-            config.noiseGateThreshold = std::clamp(
-                std::stod(settings["noise_gate_threshold"]), 0.0, 1.0);
+            config.noiseGateThresholdDbfs = std::clamp(
+                std::stod(settings["noise_gate_threshold_dbfs"]), -80.0, 0.0);
         } catch (...) {
-            config.noiseGateThreshold = 0.0;
+            config.noiseGateThresholdDbfs = -80.0;
+        }
+    } else if (settings.count("noise_gate_threshold")) {
+        // Migrate the previous normalized-amplitude setting to the dBFS scale.
+        try {
+            config.noiseGateThresholdDbfs = NormalizedRmsToDbfs(
+                std::clamp(std::stod(settings["noise_gate_threshold"]), 0.0, 1.0));
+        } catch (...) {
+            config.noiseGateThresholdDbfs = -80.0;
         }
     }
 
@@ -554,7 +571,7 @@ void SaveConfig(const std::string& filename, const AppConfig& config) {
     file << "window_width=" << config.windowWidth << '\n';
     file << "window_height=" << config.windowHeight << '\n';
     file << "recording_enabled=" << (config.recordingEnabled ? "1" : "0") << '\n';
-    file << "noise_gate_threshold=" << config.noiseGateThreshold << '\n';
+    file << "noise_gate_threshold_dbfs=" << config.noiseGateThresholdDbfs << '\n';
 }
 
 // ===================== 主逻辑 =====================
@@ -773,7 +790,7 @@ int main(int argc, char* argv[]) {
     // 4. 创建 AEC 处理器
     std::cout << "Creating AEC Processor type: " << config.aecType << std::endl;
     AudioProcessorWrapper processor(config.aecType, SAMPLE_RATE, FRAME_SIZE, FILTER_LEN,
-                                    config.noiseGateThreshold);
+                                    DbfsToNormalizedRms(config.noiseGateThresholdDbfs));
     std::cout << "AEC Processor created: " << ToUtf8(processor.GetName()) << std::endl;
 
     // 5. 缓冲区

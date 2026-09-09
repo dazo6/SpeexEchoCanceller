@@ -7,7 +7,7 @@
 
 int main(int argc, char* argv[]) {
     if (argc < 3 || argc > 6) {
-        std::cerr << "Usage: aec_benchmark <mic.wav> <loopback.wav> [iterations] [mode] [gate_threshold]\n";
+        std::cerr << "Usage: aec_benchmark <mic.wav> <loopback.wav> [iterations] [mode] [gate_threshold_dbfs]\n";
         return 2;
     }
 
@@ -31,11 +31,12 @@ int main(int argc, char* argv[]) {
         }
         modes = {requestedMode};
     }
-    const double gateThreshold = argc == 6
-        ? std::clamp(std::atof(argv[5]), 0.0, 1.0) : 0.0;
+    const double gateThresholdDbfs = argc == 6
+        ? std::clamp(std::atof(argv[5]), -80.0, 0.0) : -80.0;
+    const double gateThreshold = DbfsToNormalizedRms(gateThresholdDbfs);
     std::vector<short> output(480);
 
-    std::cout << "mode,gate_threshold,frames,mean_ms,p95_ms,max_ms,realtime_factor\n";
+    std::cout << "mode,gate_threshold_dbfs,frames,mean_ms,p95_ms,max_ms,realtime_factor\n";
     for (const auto& mode : modes) {
         std::vector<double> timings;
         timings.reserve((mic.samples.size() / 480) * iterations);
@@ -55,7 +56,7 @@ int main(int argc, char* argv[]) {
         const double mean = total / timings.size();
         const size_t p95Index = std::min(timings.size() - 1,
                                          static_cast<size_t>(timings.size() * 0.95));
-        std::cout << mode << ',' << gateThreshold << ',' << timings.size() << ',' << std::fixed
+        std::cout << mode << ',' << gateThresholdDbfs << ',' << timings.size() << ',' << std::fixed
                   << std::setprecision(4) << mean << ',' << timings[p95Index] << ','
                   << timings.back() << ',' << mean / 10.0 << '\n';
     }
