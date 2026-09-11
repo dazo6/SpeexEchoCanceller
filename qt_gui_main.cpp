@@ -27,6 +27,7 @@
 #include <QSlider>
 #include <QSignalBlocker>
 #include <QSizePolicy>
+#include <QStringList>
 #include <QStyle>
 #include <QSystemTrayIcon>
 #include <QTimer>
@@ -485,9 +486,11 @@ public:
         root->setContentsMargins(18, 16, 18, 16);
         root->setSpacing(9);
 
-        mic = deviceBox(devices(true));
-        reference = deviceBox(devices(false));
-        output = deviceBox(devices(false));
+        micDevices = devices(true);
+        renderDevices = devices(false);
+        mic = deviceBox(micDevices);
+        reference = deviceBox(renderDevices);
+        output = deviceBox(renderDevices);
         mode = new QComboBox;
         mode->addItems({"WebRTC AEC3", "SpeexDSP（完整）", "SpeexDSP（线性）",
                         "Speex 线性 + 后置降噪", "RealAEC"});
@@ -615,6 +618,13 @@ public:
             engine.setRecording(enabled);
             saveConfig(engine.running());
         });
+        for (QComboBox* box : {mic, reference, output}) {
+            connect(box, &QComboBox::currentIndexChanged, this, [this] {
+                rebuildDeviceErrorText();
+                refreshUi(false);
+                if (layoutInitializationComplete) saveConfig(engine.running());
+            });
+        }
         connect(qApp, &QCoreApplication::aboutToQuit, this, [&] {
             saveConfig(engine.running());
         });
@@ -623,7 +633,9 @@ public:
         setAutoStartRegistration(autoStartBox->isChecked());
         QTimer::singleShot(0, this, [&] {
             layoutInitializationComplete = true;
-            if (restoreEngineOnLaunch) startEngine();
+            rebuildDeviceErrorText();
+            if (!deviceSelectionsReady()) showDeviceUnavailablePrompt();
+            else if (restoreEngineOnLaunch) startEngine();
         });
     }
 
@@ -700,6 +712,11 @@ private:
         hide();
     }
     void startEngine() {
+        rebuildDeviceErrorText();
+        if (!deviceSelectionsReady()) {
+            showDeviceUnavailablePrompt();
+            return;
+        }
         engine.start(mic->currentData().toString(), reference->currentData().toString(),
                      output->currentData().toString(), modeKeys()[mode->currentIndex()],
                      DbfsToNormalizedRms(noiseGateThresholdDbfs()),
@@ -751,8 +768,10 @@ private:
     QComboBox* deviceBox(const std::vector<AudioDeviceInfo>& items) {
         auto* box = new QComboBox;
         box->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
-        for (const auto& item : items)
+        for (const auto& item : items) {
             box->addItem(QString::fromStdWString(item.name), QString::fromStdWString(item.id));
+            box->setItemData(box->count() - 1, true, Qt::UserRole + 1);
+        }
         return box;
     }
     std::vector<AudioDeviceInfo> devices(bool capture) {
@@ -783,13 +802,14 @@ private:
         const bool running = engine.running();
         QString stateText = running
             ? QString("运行中 · 平均 %1 ms / 10 ms").arg(engine.avg(), 0, 'f', 3)
-            : "已停止";
+            : (deviceSelectionsReady() ? QString("已停止") : QString("设备不可用 · %1").arg(deviceErrorText));
         if (running && recordBox->isChecked()) stateText += " · 录音中";
         const QIcon& stateIcon = running ? runningIcon : stoppedIcon;
-        startButton->setEnabled(!running);
+        startButton->setEnabled(!running && deviceSelectionsReady());
         stopButton->setEnabled(running);
         trayStop->setEnabled(running);
         status->setText(stateText);
+        status->setToolTip(deviceErrorText);
         trayStatus->setText("状态：" + stateText);
         tray.setToolTip("Speex Echo Canceller · " + stateText);
         tray.setIcon(stateIcon);
@@ -801,13 +821,61 @@ private:
     void loadConfig() {
         AppConfig config;
         if (!LoadConfig(configPath(), config)) return;
-        auto select = [](QComboBox* box, const std::wstring& id) {
-            const int index = box->findData(QString::fromStdWString(id));
-            if (index >= 0) box->setCurrentIndex(index);
+        bool bindingChanged = false;
+        auto resolve = [&](QComboBox* box, const std::vector<AudioDeviceInfo>& items,
+                           const QString& role, std::wstring& id, std::wstring& name,
+                           std::wstring& containerId) {
+            auto uniqueMatch = [&](auto predicate) {
+                int result = -1;
+                for (int i = 0; i < static_cast<int>(items.size()); ++i) {
+                    if (!predicate(items[i])) continue;
+                    if (result >= 0) return -1;
+                    result = i;
+                }
+                return result;
+            };
+
+            int match = uniqueMatch([&](const AudioDeviceInfo& item) {
+                return !id.empty() && _wcsicmp(item.id.c_str(), id.c_str()) == 0;
+            });
+            if (match < 0 && !containerId.empty()) {
+                match = uniqueMatch([&](const AudioDeviceInfo& item) {
+                    return !item.containerId.empty() &&
+                           _wcsicmp(item.containerId.c_str(), containerId.c_str()) == 0;
+                });
+            }
+            if (match < 0 && !name.empty()) {
+                match = uniqueMatch([&](const AudioDeviceInfo& item) {
+                    return _wcsicmp(item.name.c_str(), name.c_str()) == 0;
+                });
+            }
+
+            if (match >= 0) {
+                const AudioDeviceInfo& item = items[match];
+                box->setCurrentIndex(match);
+                if (id != item.id || name != item.name || containerId != item.containerId) {
+                    id = item.id;
+                    name = item.name;
+                    containerId = item.containerId;
+                    bindingChanged = true;
+                }
+                return;
+            }
+
+            const QString savedName = name.empty() ? QString::fromStdWString(id)
+                                                    : QString::fromStdWString(name);
+            box->insertItem(0, QString("⚠ 原设备不可用：%1").arg(savedName),
+                            QString::fromStdWString(id));
+            box->setItemData(0, false, Qt::UserRole + 1);
+            box->setItemData(0, QString("%1：%2").arg(role, savedName), Qt::UserRole + 2);
+            box->setCurrentIndex(0);
         };
-        select(mic, config.micDeviceId);
-        select(reference, config.loopbackDeviceId);
-        select(output, config.outputDeviceId);
+        resolve(mic, micDevices, "麦克风", config.micDeviceId,
+                config.micDeviceName, config.micContainerId);
+        resolve(reference, renderDevices, "系统回环", config.loopbackDeviceId,
+                config.loopbackDeviceName, config.loopbackContainerId);
+        resolve(output, renderDevices, "输出设备", config.outputDeviceId,
+                config.outputDeviceName, config.outputContainerId);
         const int saved = modeKeys().indexOf(QString::fromStdString(config.aecType));
         mode->setCurrentIndex(saved < 0 ? 3 : saved);
         setNoiseGateThresholdDbfs(config.noiseGateThresholdDbfs);
@@ -829,12 +897,30 @@ private:
         } else {
             adaptWindowToBackground(background->sourceImageSize());
         }
+        persistedConfig = config;
+        rebuildDeviceErrorText();
+        if (bindingChanged) SaveConfig(configPath(), persistedConfig);
     }
     void saveConfig(bool engineRunning) {
-        AppConfig config;
-        config.micDeviceId = mic->currentData().toString().toStdWString();
-        config.loopbackDeviceId = reference->currentData().toString().toStdWString();
-        config.outputDeviceId = output->currentData().toString().toStdWString();
+        AppConfig config = persistedConfig;
+        auto saveBinding = [](QComboBox* box, const std::vector<AudioDeviceInfo>& items,
+                              std::wstring& id, std::wstring& name, std::wstring& containerId) {
+            if (!box->currentData(Qt::UserRole + 1).toBool()) return;
+            const std::wstring selectedId = box->currentData().toString().toStdWString();
+            const auto found = std::find_if(items.begin(), items.end(), [&](const AudioDeviceInfo& item) {
+                return _wcsicmp(item.id.c_str(), selectedId.c_str()) == 0;
+            });
+            if (found == items.end()) return;
+            id = found->id;
+            name = found->name;
+            containerId = found->containerId;
+        };
+        saveBinding(mic, micDevices, config.micDeviceId,
+                    config.micDeviceName, config.micContainerId);
+        saveBinding(reference, renderDevices, config.loopbackDeviceId,
+                    config.loopbackDeviceName, config.loopbackContainerId);
+        saveBinding(output, renderDevices, config.outputDeviceId,
+                    config.outputDeviceName, config.outputContainerId);
         config.aecType = modeKeys()[mode->currentIndex()].toStdString();
         config.autoStart = autoStartBox->isChecked();
         config.engineWasRunning = engineRunning;
@@ -849,6 +935,36 @@ private:
         config.recordingEnabled = recordBox->isChecked();
         config.noiseGateThresholdDbfs = noiseGateThresholdDbfs();
         SaveConfig(configPath(), config);
+        persistedConfig = config;
+    }
+    bool deviceSelectionsReady() const {
+        return mic->currentData(Qt::UserRole + 1).toBool() &&
+               reference->currentData(Qt::UserRole + 1).toBool() &&
+               output->currentData(Qt::UserRole + 1).toBool();
+    }
+    void rebuildDeviceErrorText() {
+        QStringList missing;
+        for (QComboBox* box : {mic, reference, output}) {
+            if (!box->currentData(Qt::UserRole + 1).toBool()) {
+                missing << box->currentData(Qt::UserRole + 2).toString();
+            }
+        }
+        deviceErrorText = missing.join("；");
+    }
+    void showDeviceUnavailablePrompt() {
+        rebuildDeviceErrorText();
+        if (deviceErrorText.isEmpty()) return;
+        QMessageBox prompt(nullptr);
+        prompt.setWindowTitle("原设备当前不可用");
+        prompt.setWindowIcon(stoppedIcon);
+        prompt.setIcon(QMessageBox::Warning);
+        prompt.setText("原设备当前不可用，引擎未启动。");
+        prompt.setInformativeText(deviceErrorText);
+        auto* detailsButton = prompt.addButton("查看详情", QMessageBox::AcceptRole);
+        prompt.addButton("知道了", QMessageBox::RejectRole);
+        prompt.setDefaultButton(qobject_cast<QPushButton*>(detailsButton));
+        prompt.exec();
+        if (prompt.clickedButton() == detailsButton) showFromTray();
     }
     double noiseGateThresholdDbfs() const {
         return noiseGate->value() / 10.0;
@@ -915,7 +1031,10 @@ private:
             *trayRecord = nullptr;
     QIcon stoppedIcon, runningIcon;
     std::vector<Wave*> waveWidgets;
+    std::vector<AudioDeviceInfo> micDevices, renderDevices;
     int waveIndex = 0;
+    AppConfig persistedConfig;
+    QString deviceErrorText;
     bool restoreEngineOnLaunch = false;
     std::wstring backgroundImageSetting;
     double backgroundOpacitySetting = 0.0;

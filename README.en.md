@@ -71,8 +71,11 @@ Download the ZIP produced by GitHub Actions or a Release, extract it, and run `S
 | Key | Type/range | Meaning |
 |---|---|---|
 | `mic_id` | WASAPI device ID | Microphone capture endpoint |
+| `mic_name` / `mic_container_id` | name / hardware container GUID | Migration identity if the microphone endpoint ID changes |
 | `loopback_id` | WASAPI device ID | Render endpoint used for loopback capture |
+| `loopback_name` / `loopback_container_id` | name / hardware container GUID | Migration identity if the loopback endpoint ID changes |
 | `output_id` | WASAPI device ID | Processed-audio playback endpoint |
+| `output_name` / `output_container_id` | name / hardware container GUID | Migration identity if the output endpoint ID changes |
 | `aec_type` | one of the five values above | Processing mode; default: `speex_linear_denoise` |
 | `noise_gate_threshold_dbfs` | `-80.0`–`0.0` dBFS | Post-gate 10 ms frame-RMS threshold; the GUI step is 0.1 dB |
 | `auto_start` | `0` / `1` | Start silently after Windows login |
@@ -82,6 +85,8 @@ Download the ZIP produced by GitHub Actions or a Release, extract it, and run `S
 | `background_opacity` | `0.0`–`1.0` | Background-image visibility |
 | `window_width` | pixels; `0` means automatic | Remembered window width |
 | `window_height` | pixels; `0` means automatic | Remembered window height |
+
+Device restoration tries the endpoint ID, a unique hardware container ID, and then a unique device name. If none matches, the app does not fall back to the first device and does not auto-start the engine. A device-unavailable prompt with a **View details** action is shown even for a background launch.
 
 The GUI also accepts `--background` for a tray-only launch. The threshold slider directly uses `-80.0` to `0.0 dBFS` with a 0.1 dB step. A complete 10 ms output frame is zeroed when its RMS is below the threshold. Editing the value automatically restarts a running engine so the new value takes effect. The previous normalized `noise_gate_threshold` setting is converted and migrated automatically when read.
 

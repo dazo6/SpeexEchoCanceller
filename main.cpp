@@ -439,8 +439,14 @@ int RunOfflineAec(const std::string& type, const std::string& micFilename,
 
 struct AppConfig {
     std::wstring micDeviceId;
+    std::wstring micDeviceName;
+    std::wstring micContainerId;
     std::wstring loopbackDeviceId;
+    std::wstring loopbackDeviceName;
+    std::wstring loopbackContainerId;
     std::wstring outputDeviceId;
+    std::wstring outputDeviceName;
+    std::wstring outputContainerId;
     std::string aecType = "speex_linear_denoise";
     bool autoStart = false;
     bool engineWasRunning = false;
@@ -490,8 +496,14 @@ bool LoadConfig(const std::string& filename, AppConfig& config) {
     }
 
     if (settings.count("mic_id")) config.micDeviceId = Utf8ToWide(settings["mic_id"]);
+    if (settings.count("mic_name")) config.micDeviceName = Utf8ToWide(settings["mic_name"]);
+    if (settings.count("mic_container_id")) config.micContainerId = Utf8ToWide(settings["mic_container_id"]);
     if (settings.count("loopback_id")) config.loopbackDeviceId = Utf8ToWide(settings["loopback_id"]);
+    if (settings.count("loopback_name")) config.loopbackDeviceName = Utf8ToWide(settings["loopback_name"]);
+    if (settings.count("loopback_container_id")) config.loopbackContainerId = Utf8ToWide(settings["loopback_container_id"]);
     if (settings.count("output_id")) config.outputDeviceId = Utf8ToWide(settings["output_id"]);
+    if (settings.count("output_name")) config.outputDeviceName = Utf8ToWide(settings["output_name"]);
+    if (settings.count("output_container_id")) config.outputContainerId = Utf8ToWide(settings["output_container_id"]);
     if (settings.count("aec_type")) {
         config.aecType = settings["aec_type"];
     } else {
@@ -561,8 +573,14 @@ void SaveConfig(const std::string& filename, const AppConfig& config) {
     if (!file.is_open()) return;
 
     file << "mic_id=" << WideToUtf8(config.micDeviceId) << '\n';
+    file << "mic_name=" << WideToUtf8(config.micDeviceName) << '\n';
+    file << "mic_container_id=" << WideToUtf8(config.micContainerId) << '\n';
     file << "loopback_id=" << WideToUtf8(config.loopbackDeviceId) << '\n';
+    file << "loopback_name=" << WideToUtf8(config.loopbackDeviceName) << '\n';
+    file << "loopback_container_id=" << WideToUtf8(config.loopbackContainerId) << '\n';
     file << "output_id=" << WideToUtf8(config.outputDeviceId) << '\n';
+    file << "output_name=" << WideToUtf8(config.outputDeviceName) << '\n';
+    file << "output_container_id=" << WideToUtf8(config.outputContainerId) << '\n';
     file << "aec_type=" << config.aecType << '\n';
     file << "auto_start=" << (config.autoStart ? "1" : "0") << '\n';
     file << "engine_running=" << (config.engineWasRunning ? "1" : "0") << '\n';

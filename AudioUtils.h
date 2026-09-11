@@ -39,8 +39,15 @@ inline std::string ToUtf8(const std::wstring& wstr) {
 struct AudioDeviceInfo {
     std::wstring id;
     std::wstring name;
+    std::wstring containerId;
     bool isCapture; // true for mic, false for speaker
 };
+
+// Older MinGW Windows SDK headers omit this property-key alias. It is the
+// standard DEVPKEY_Device_ContainerId key and can be queried through
+// IMMDevice's IPropertyStore.
+inline constexpr PROPERTYKEY kDeviceContainerId = {
+    {0x8c7ed206, 0x3f8a, 0x4827, {0xb3, 0xab, 0xae, 0x9e, 0x1f, 0xae, 0xfc, 0x6c}}, 2};
 
 class WASAPIUtils {
 public:
@@ -104,9 +111,22 @@ public:
             } else {
                  info.name = L"Unknown Device (ID only)";
             }
+            PROPVARIANT varContainer;
+            PropVariantInit(&varContainer);
+            if (SUCCEEDED(pProps->GetValue(kDeviceContainerId, &varContainer))) {
+                if (varContainer.vt == VT_CLSID && varContainer.puuid) {
+                    wchar_t guid[40] = {};
+                    if (StringFromGUID2(*varContainer.puuid, guid, 40) > 0) {
+                        info.containerId = guid;
+                    }
+                } else if (varContainer.vt == VT_LPWSTR && varContainer.pwszVal) {
+                    info.containerId = varContainer.pwszVal;
+                }
+            }
             info.isCapture = capture;
             devices.push_back(info);
 
+            PropVariantClear(&varContainer);
             PropVariantClear(&varName);
             CoTaskMemFree(pwszID);
             SAFE_RELEASE(pProps);

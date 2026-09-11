@@ -73,8 +73,11 @@ flowchart LR
 | 参数 | 类型/范围 | 说明 |
 |---|---|---|
 | `mic_id` | WASAPI 设备 ID | 麦克风输入设备 |
+| `mic_name` / `mic_container_id` | 名称 / 硬件容器 GUID | 麦克风 ID 失效时的迁移依据 |
 | `loopback_id` | WASAPI 设备 ID | 用于系统回放采集的渲染设备 |
+| `loopback_name` / `loopback_container_id` | 名称 / 硬件容器 GUID | 回环设备 ID 失效时的迁移依据 |
 | `output_id` | WASAPI 设备 ID | 处理结果播放设备 |
+| `output_name` / `output_container_id` | 名称 / 硬件容器 GUID | 输出设备 ID 失效时的迁移依据 |
 | `aec_type` | 上表五个值之一 | 当前处理模式；默认 `speex_linear_denoise` |
 | `noise_gate_threshold_dbfs` | `-80.0`–`0.0` dBFS | 后置 Gate 的 10 ms 帧 RMS 阈值，GUI 步进为 0.1 dB |
 | `auto_start` | `0` / `1` | 开机登录后静默启动程序 |
@@ -84,6 +87,8 @@ flowchart LR
 | `background_opacity` | `0.0`–`1.0` | 背景图可见强度 |
 | `window_width` | 像素，`0` 表示自动 | 用户保存的窗口宽度 |
 | `window_height` | 像素，`0` 表示自动 | 用户保存的窗口高度 |
+
+设备恢复依次使用 Endpoint ID、唯一硬件容器标识和唯一设备名称。全部无法匹配时不会回退到列表第一项，也不会自动启动引擎；即使以后台模式启动，也会显示原设备不可用提示并提供“查看详情”按钮。
 
 示例：
 
