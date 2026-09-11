@@ -12,6 +12,8 @@
 #include <QGuiApplication>
 #include <QHBoxLayout>
 #include <QImage>
+#include <QImageReader>
+#include <QEvent>
 #include <QFont>
 #include <QLabel>
 #include <QMainWindow>
@@ -233,6 +235,13 @@ public:
         output = waves[index];
     }
     void setRecording(bool enabled) { recordingEnabled = enabled; }
+    void setWaveCaptureEnabled(bool enabled) {
+        waveCaptureEnabled = enabled;
+        if (!enabled) {
+            std::lock_guard<std::mutex> lock(mu);
+            for (auto& wave : waves) std::vector<short>().swap(wave);
+        }
+    }
     void start(QString micId, QString loopbackId, QString outputId, QString mode,
                double noiseGateThreshold, QString recordDirectory, bool record) {
         stop();
@@ -292,10 +301,14 @@ private:
             outputStream.Write(output);
             recorder.setEnabled(recordingEnabled);
             recorder.push(mic, reference, output);
-            std::lock_guard<std::mutex> lock(mu);
-            waves[0] = mic;
-            waves[1] = reference;
-            waves[2] = output;
+            if (waveCaptureEnabled) {
+                std::lock_guard<std::mutex> lock(mu);
+                if (waveCaptureEnabled) {
+                    waves[0] = mic;
+                    waves[1] = reference;
+                    waves[2] = output;
+                }
+            }
         }
         CoUninitialize();
     }
@@ -303,6 +316,7 @@ private:
     std::atomic<bool> live{false};
     std::atomic<double> ms{0};
     std::atomic<bool> recordingEnabled{false};
+    std::atomic<bool> waveCaptureEnabled{true};
     std::thread worker;
     std::mutex mu;
     std::vector<short> waves[3];
@@ -311,13 +325,27 @@ private:
 class BackgroundWidget : public QWidget {
 public:
     void setBackground(const QString& path, double configuredOpacity) {
-        image = path.isEmpty() ? QImage() : QImage(path);
+        imagePath = path;
+        QImageReader reader(imagePath);
+        reader.setAutoTransform(true);
+        originalSize = imagePath.isEmpty() ? QSize() : reader.size();
         if (configuredOpacity > 1.0) configuredOpacity /= 100.0;
         opacity = std::clamp(configuredOpacity, 0.0, 1.0);
         rebuildCache();
         update();
     }
-    QSize sourceImageSize() const { return image.size(); }
+    QSize sourceImageSize() const { return originalSize; }
+    void suspend() {
+        active = false;
+        cache = QImage();
+        cachedLogicalSize = QSize();
+    }
+    void resume() {
+        if (active) return;
+        active = true;
+        rebuildCache();
+        update();
+    }
 
 protected:
     void resizeEvent(QResizeEvent* event) override {
@@ -328,10 +356,11 @@ protected:
     void paintEvent(QPaintEvent*) override {
         QPainter painter(this);
         painter.fillRect(rect(), QColor("#101722"));
-        if (image.isNull() || opacity <= 0.0) return;
+        if (!active || imagePath.isEmpty() || opacity <= 0.0) return;
 
         const qreal currentDpr = devicePixelRatioF();
-        if (cachedLogicalSize != size() || std::abs(cachedDpr - currentDpr) > 0.01) {
+        if (cache.isNull() || cachedLogicalSize != size() ||
+            std::abs(cachedDpr - currentDpr) > 0.01) {
             rebuildCache();
         }
         if (cache.isNull()) return;
@@ -346,43 +375,51 @@ private:
         cache = QImage();
         cachedLogicalSize = size();
         cachedDpr = devicePixelRatioF();
-        if (image.isNull() || width() <= 0 || height() <= 0) return;
+        if (!active || imagePath.isEmpty() || !originalSize.isValid() ||
+            width() <= 0 || height() <= 0) return;
 
         const int targetWidth = std::max(1, static_cast<int>(std::ceil(width() * cachedDpr)));
         const int targetHeight = std::max(1, static_cast<int>(std::ceil(height() * cachedDpr)));
         const double targetRatio = static_cast<double>(targetWidth) / targetHeight;
-        const double sourceRatio = static_cast<double>(image.width()) / image.height();
+        const double sourceRatio = static_cast<double>(originalSize.width()) / originalSize.height();
 
-        QRect crop = image.rect();
+        QSize decodeSize;
         if (sourceRatio > targetRatio) {
-            const int cropWidth = std::max(1, static_cast<int>(std::round(image.height() * targetRatio)));
-            crop.setLeft((image.width() - cropWidth) / 2);
-            crop.setWidth(cropWidth);
-        } else if (sourceRatio < targetRatio) {
-            const int cropHeight = std::max(1, static_cast<int>(std::round(image.width() / targetRatio)));
-            crop.setTop((image.height() - cropHeight) / 2);
-            crop.setHeight(cropHeight);
+            decodeSize = QSize(std::max(targetWidth,
+                                        static_cast<int>(std::ceil(targetHeight * sourceRatio))),
+                               targetHeight);
+        } else {
+            decodeSize = QSize(targetWidth,
+                               std::max(targetHeight,
+                                        static_cast<int>(std::ceil(targetWidth / sourceRatio))));
         }
 
-        QImage working = image.copy(crop).convertToFormat(QImage::Format_ARGB32_Premultiplied);
+        QImageReader reader(imagePath);
+        reader.setAutoTransform(true);
+        reader.setScaledSize(decodeSize);
+        QImage decoded = reader.read();
+        if (decoded.isNull()) return;
 
-        // Repeated 2x reductions act as a low-pass filter before the final
-        // interpolation. This avoids aliasing when a large illustration is
-        // reduced to a relatively small window.
-        while (working.width() / 2 >= targetWidth && working.height() / 2 >= targetHeight) {
-            working = working.scaled(working.width() / 2, working.height() / 2,
-                                     Qt::IgnoreAspectRatio, Qt::SmoothTransformation);
+        const int cropX = std::max(0, (decoded.width() - targetWidth) / 2);
+        const int cropY = std::max(0, (decoded.height() - targetHeight) / 2);
+        cache = decoded.copy(cropX, cropY,
+                             std::min(targetWidth, decoded.width() - cropX),
+                             std::min(targetHeight, decoded.height() - cropY));
+        if (cache.size() != QSize(targetWidth, targetHeight)) {
+            cache = cache.scaled(targetWidth, targetHeight, Qt::IgnoreAspectRatio,
+                                 Qt::SmoothTransformation);
         }
-        cache = working.scaled(targetWidth, targetHeight, Qt::IgnoreAspectRatio,
-                               Qt::SmoothTransformation);
+        cache = cache.convertToFormat(QImage::Format_ARGB32_Premultiplied);
         cache.setDevicePixelRatio(cachedDpr);
     }
 
-    QImage image;
+    QString imagePath;
+    QSize originalSize;
     QImage cache;
     QSize cachedLogicalSize;
     qreal cachedDpr = 1.0;
     qreal opacity = 0.0;
+    bool active = true;
 };
 
 class Wave : public QWidget {
@@ -524,7 +561,7 @@ public:
         auto* menu = new QMenu;
         menu->addAction(trayStatus);
         menu->addSeparator();
-        menu->addAction("显示窗口", this, [&] { showNormal(); raise(); activateWindow(); });
+        menu->addAction("显示窗口", this, [&] { showFromTray(); });
         trayStop = menu->addAction("停止引擎", this, [&] { stopEngine(); });
         trayStop->setEnabled(false);
         trayAutoStart = menu->addAction("开机自启动（后台）");
@@ -544,8 +581,10 @@ public:
                 });
 
         timer = new QTimer(this);
-        connect(timer, &QTimer::timeout, this, [&] { refreshUi(); });
+        connect(timer, &QTimer::timeout, this, [&] { refreshUi(true); });
         timer->start(60);
+        trayTimer = new QTimer(this);
+        connect(trayTimer, &QTimer::timeout, this, [&] { refreshUi(false); });
         windowSaveTimer = new QTimer(this);
         windowSaveTimer->setSingleShot(true);
         connect(windowSaveTimer, &QTimer::timeout, this, [&] {
@@ -588,6 +627,8 @@ public:
         });
     }
 
+    void startInBackground() { enterBackgroundMode(); }
+
 protected:
     void closeEvent(QCloseEvent* event) override {
         QMessageBox prompt(this);
@@ -603,13 +644,19 @@ protected:
         prompt.exec();
 
         if (prompt.clickedButton() == minimizeButton) {
-            hide();
+            enterBackgroundMode();
             event->ignore();
         } else if (prompt.clickedButton() == exitButton) {
             event->accept();
             QTimer::singleShot(0, qApp, &QCoreApplication::quit);
         } else {
             event->ignore();
+        }
+    }
+    void changeEvent(QEvent* event) override {
+        QMainWindow::changeEvent(event);
+        if (event->type() == QEvent::WindowStateChange && isMinimized()) {
+            QTimer::singleShot(0, this, [this] { enterBackgroundMode(); });
         }
     }
     void resizeEvent(QResizeEvent* event) override {
@@ -631,9 +678,26 @@ private:
         return QDir(QCoreApplication::applicationDirPath()).filePath("record");
     }
     void showFromTray() {
+        uiSuspended = false;
         showNormal();
+        background->resume();
+        engine.setWaveCaptureEnabled(true);
+        if (trayTimer) trayTimer->stop();
+        if (timer) timer->start(60);
+        refreshUi(true);
         raise();
         activateWindow();
+    }
+    void enterBackgroundMode() {
+        if (!uiSuspended) {
+            uiSuspended = true;
+            if (timer) timer->stop();
+            if (trayTimer) trayTimer->start(1000);
+            engine.setWaveCaptureEnabled(false);
+            background->suspend();
+            refreshUi(false);
+        }
+        hide();
     }
     void startEngine() {
         engine.start(mic->currentData().toString(), reference->currentData().toString(),
@@ -715,7 +779,7 @@ private:
         if (stoppedIcon.isNull()) stoppedIcon = style()->standardIcon(QStyle::SP_MediaStop);
         if (runningIcon.isNull()) runningIcon = style()->standardIcon(QStyle::SP_MediaPlay);
     }
-    void refreshUi() {
+    void refreshUi(bool refreshWaves) {
         const bool running = engine.running();
         QString stateText = running
             ? QString("运行中 · 平均 %1 ms / 10 ms").arg(engine.avg(), 0, 'f', 3)
@@ -730,7 +794,9 @@ private:
         tray.setToolTip("Speex Echo Canceller · " + stateText);
         tray.setIcon(stateIcon);
         setWindowIcon(stateIcon);
-        for (Wave* wave : waveWidgets) wave->update();
+        if (refreshWaves) {
+            for (Wave* wave : waveWidgets) wave->update();
+        }
     }
     void loadConfig() {
         AppConfig config;
@@ -841,6 +907,7 @@ private:
     QCheckBox *autoStartBox = nullptr, *recordBox = nullptr;
     QLabel* status = nullptr;
     QTimer* timer = nullptr;
+    QTimer* trayTimer = nullptr;
     QTimer* windowSaveTimer = nullptr;
     QTimer* gateApplyTimer = nullptr;
     QSystemTrayIcon tray;
@@ -856,6 +923,7 @@ private:
     int savedWindowHeight = 0;
     bool layoutInitializationComplete = false;
     bool userAdjustedWindowSize = false;
+    bool uiSuspended = false;
 };
 
 int main(int argc, char** argv) {
@@ -902,7 +970,8 @@ int main(int argc, char** argv) {
         QMenu::item:selected { background: #1c6895; }
     )");
     Window window;
-    if (!app.arguments().contains("--background")) window.show();
+    if (app.arguments().contains("--background")) window.startInBackground();
+    else window.show();
     const int result = app.exec();
     CloseHandle(singleInstance);
     CoUninitialize();
